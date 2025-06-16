@@ -52,6 +52,8 @@ except Exception as e:
 
 def analyze_game(business_data):
     """The Game Dev Vizier offers his council."""
+    if client is None:
+        return "OpenAI client is not initialized. Please check your API key and environment variables."
     prompt = f"""
     You are an expert video game designer and royal vizier. Using the game summary given, share one strong point about it, three ways it could be improved, and three ways it could be made more marketable. Be sure to give specific, actionable recommendations and examples especially for how it could be more marketable.
 
@@ -613,5 +615,16 @@ if __name__ == '__main__':
     print(f"   SMTP_EMAIL: {'✅ Set' if os.environ.get('SMTP_EMAIL') or os.environ.get('EMAIL') else '❌ Missing'}")
     print(f"   GDV_PASSWORD: {'✅ Set' if os.environ.get('GDV_PASSWORD') or os.environ.get('EMAIL_PASSWORD') else '❌ Missing'}")
 
+    # Get port from environment variable, default to 5000 for local development
     port = int(os.environ.get('PORT', 5000))
+
+    # Check if we're in production (Railway sets PORT automatically)
+    is_production = os.environ.get('RAILWAY_ENVIRONMENT') or os.environ.get('PORT')
+
+    if is_production:
+        print(f"🌐 Production mode detected, running on port {port}")
+        print("💡 Note: In production, use 'gunicorn --bind 0.0.0.0:$PORT main:app' instead")
+    else:
+        print(f"🛠️ Development mode, running on port {port}")
+
     app.run(debug=False, host='0.0.0.0', port=port)
