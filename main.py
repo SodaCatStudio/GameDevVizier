@@ -33,7 +33,22 @@ try:
 except ImportError:
     print("Tip: Install fla for bsk-corsetter browser support: pip install flask-cors")
 
-client = OpenAI(api_key=os.environ.get('OPENAI_KEY'))
+try:
+    # Try multiple environment variable names for flexibility
+    api_key = (os.environ.get('OPENAI_KEY') or 
+               os.environ.get('OPENAI_API_KEY') or 
+               os.environ.get('OPENAI_TOKEN'))
+
+    if not api_key:
+        raise ValueError("OpenAI API key not found in environment variables")
+
+    client = OpenAI(api_key=api_key)
+    print("✅ OpenAI client initialized successfully")
+
+except Exception as e:
+    print(f"❌ Failed to initialize OpenAI client: {str(e)}")
+    # You might want to exit here or set client to None and handle it later
+    client = None
 
 def analyze_game(business_data):
     """The Game Dev Vizier offers his council."""
@@ -140,7 +155,6 @@ def create_pdf_report(analysis, business_name="Client Business", user_email=""):
     except Exception as e:
         print(f"❌ PDF creation error: {e}")
         raise Exception(f"Failed to create PDF: {str(e)}")
-        return pdf_filename, report_id
 
 def send_email_with_pdf(user_email, pdf_filename, business_name, report_id):
     """Send email with PDF attachment"""
