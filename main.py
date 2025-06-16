@@ -1,0 +1,648 @@
+import os
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.base import MIMEBase
+from email import encoders
+from flask import Flask, request, jsonify
+from openai import OpenAI
+from weasyprint import HTML, CSS
+from datetime import datetime
+import uuid
+import json
+import tempfile
+
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    print("💡 Tip: Install python-dotenv to use .env files: pip install python-dotenv")
+
+app = Flask(__name__)
+
+# Add CORS support
+try:
+    from flask_cors import CORS
+    CORS(app, origins="*")  # Allow all origins for development
+    print("✅ CORS enabled for all origins")
+except ImportError:
+    print("Tip: Install fla for bsk-corsetter browser support: pip install flask-cors")
+
+client = OpenAI(api_key=os.environ.get('OPENAI_KEY'))
+
+def analyze_game(business_data):
+    """The Game Dev Vizier offers his council."""
+    prompt = f"""
+    You are an expert video game designer and royal vizier. Using the game summary given, share one strong point about it, three ways it could be improved, and three ways it could be made more marketable. Be sure to give specific, actionable recommendations and examples especially for how it could be more marketable.
+
+    Game Summary:
+    {business_data}
+
+    IMPORTANT: Use professional consulting language with perfect spelling and grammar and a royal vizier style as if talking to a king or queen.
+    """
+
+    response = client.chat.completions.create(
+        model="gpt-4", # or make it cheaper with mini
+        messages=[
+            {"role": "system", "content": "You are a top-tier game dev consultant and royal vizier who delivers precise, actionable insights with perfect spelling and grammar."},
+            {"role": "user", "content": prompt}
+        ],
+        temperature=0.8, #adjust as needed
+        max_tokens=2000
+    )
+
+    return response.choices[0].message.content
+
+
+def create_pdf_report(analysis, business_name="Client Business", user_email=""):
+    """Enhanced PDF creation with better styling"""
+    # Better markdown-to-HTML conversion
+    formatted_analysis = analysis.replace('\n\n', '</p><p>')
+    formatted_analysis = formatted_analysis.replace('\n', '<br>')
+    formatted_analysis = formatted_analysis.replace('# ', '<h2>').replace('</p><p><h2>', '</p><h2>')
+    formatted_analysis = formatted_analysis.replace('## ', '<h3>').replace('</p><p><h3>', '</p><h3>')
+    formatted_analysis = f'<p>{formatted_analysis}</p>'
+
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <style>
+            body {{ 
+                font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif; 
+                margin: 0;
+                padding: 40px;
+                line-height: 1.6;
+                color: #2c3e50;
+                background: #f8f9fa;
+            }}
+            .container {{
+                max-width: 800px;
+                margin: 0 auto;
+                background: white;
+                border-radius: 12px;
+                box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+                overflow: hidden;
+            }}
+            .header {{ 
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+                padding: 40px;
+                text-align: center;
+            }}
+            .header h1 {{ 
+                margin: 0;
+                font-size: 32px;
+                font-weight: 700;
+            }}
+            .header h2 {{ 
+                margin: 10px 0 0 0;
+                font-size: 20px;
+                opacity: 0.9;
+                font-weight: 400;
+            }}
+            .subtitle {{ 
+                margin-top: 15px;
+                font-size: 14px;
+                opacity: 0.8;
+            }}
+            .content {{ 
+                padding: 40px;
+            }}
+            .content h2 {{
+                color: #667eea;
+                border-bottom: 2px solid #667eea;
+                padding-bottom: 10px;
+                margin-top: 30px;
+                margin-bottom: 20px;
+                font-size: 20px;
+            }}
+            .content h3 {{
+                color: #764ba2;
+                margin-top: 25px;
+                margin-bottom: 15px;
+                font-size: 16px;
+            }}
+            .content p {{
+                margin-bottom: 15px;
+                color: #444;
+            }}
+            .footer {{
+                background: #f8f9fa;
+                padding: 30px;
+                text-align: center;
+                border-top: 1px solid #e9ecef;
+            }}
+            .footer p {{
+                margin: 0;
+                color: #666;
+                font-size: 14px;
+            }}
+            .cta {{
+                background: #667eea;
+                color: white;
+                padding: 15px 30px;
+                border-radius: 8px;
+                text-decoration: none;
+                display: inline-block;
+                margin-top: 15px;
+                font-weight: 600;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h1>Game Dev Vizier Report</h1>
+                <h2>{business_name}</h2>
+                <div class="subtitle">Generated on {datetime.now().strftime("%B %d, %Y")}</div>
+            </div>
+            <div class="content">
+                {formatted_analysis}
+            </div>
+            <div class="footer">
+                <p><strong>Art thou pleased with my advice?</strong></p>
+                <p style="margin-top: 20px; font-size: 12px;">
+                    Report generated by the Game Dev Vizier
+                </p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+
+    # Create PDF with unique filename
+    report_id = str(uuid.uuid4())[:8]
+    # Use tempfile for better Replit compatibility
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf', prefix=f'game_report_{report_id}_') as tmp_file:
+        pdf_filename = tmp_file.name
+
+    try:
+        HTML(string=html_content).write_pdf(pdf_filename)
+        print(f"✅ PDF created: {pdf_filename}")
+    except Exception as e:
+        print(f"❌ PDF creation error: {e}")
+        raise Exception(f"Failed to create PDF: {str(e)}")
+
+    return pdf_filename, report_id
+
+def send_email_with_pdf(user_email, pdf_filename, business_name, report_id):
+    """Send email with PDF attachment"""
+
+    # Email configuration
+    smtp_server = "smtp.gmail.com"
+    smtp_port = 587
+    sender_email = os.environ.get('SMTP_EMAIL')
+    sender_password = os.environ.get('GDV_PASSWORD')
+
+    if not sender_email or not sender_password:
+        print("Warning: Email credentials not configured")
+        return False
+
+    # Create message
+    msg = MIMEMultipart()
+    msg['From'] = f"Game Dev Vizier <{sender_email}>"
+    msg['To'] = user_email
+    msg['Subject'] = f"The Game Dev Vizier's Council - {business_name}"
+
+    # Email body
+    email_body = f"""
+    My Liege,
+
+    Here is my council for your game idea has been delivered. 
+
+    I've analyzed the strengths and weaknesses of your game and how to market it. The attached epistle contains:
+
+    ✅ A strong point about your game
+    ✅ Three ways to improve your game
+    ✅ Three ways to make your game more marketable
+
+    I hope my council leads to prosperity and success for your game.
+
+    May Success Rain Down Upon You,
+    The Game Dev Vizier
+
+    ---
+    Report ID: {report_id}
+    Generated: {datetime.now().strftime("%B %d, %Y at %I:%M %p")}
+    """
+
+    msg.attach(MIMEText(email_body, 'plain'))
+
+    # Attach PDF
+    try:
+        with open(pdf_filename, "rb") as attachment:
+            # Use MIMEApplication for PDF files (better than MIMEBase)
+            from email.mime.application import MIMEApplication
+
+            pdf_data = attachment.read()
+            pdf_attachment = MIMEApplication(pdf_data, _subtype='pdf')
+
+            # Set proper filename (clean, user-friendly name)
+            clean_filename = f"game-analysis-{business_name.replace(' ', '-').lower()}-{report_id[:8]}.pdf"
+            pdf_attachment.add_header(
+                'Content-Disposition',
+                'attachment',
+                filename=clean_filename
+            )
+
+            msg.attach(pdf_attachment)
+            print(f"✅ PDF attached as: {clean_filename}")
+
+    except FileNotFoundError:
+        print(f"❌ Error: PDF file {pdf_filename} not found")
+        return False
+    except Exception as e:
+        print(f"❌ Error attaching PDF: {str(e)}")
+        return False
+
+
+    # Send email
+    try:
+        server = smtplib.SMTP(smtp_server, smtp_port)
+        server.starttls()
+        server.login(sender_email, sender_password)
+        server.send_message(msg)
+        server.quit()
+        print(f"✅ Email sent successfully to {user_email}")
+        return True
+    except Exception as e:
+        print(f"❌ Failed to send email: {str(e)}")
+        return False
+
+def process_game_analysis(data):
+    """Extracted logic for providing wise advice for the game dev"""
+    # Validate required fields
+    required_fields = ['business_name', 'email', 'game_data']
+    for field in required_fields:
+        if field not in data or data[field] is None:
+            raise ValueError(f'Missing required field: {field}')
+
+    business_name = data['business_name']
+    user_email = data['email']
+    game_data = data['game_data']
+
+    # Generate analysis
+    print(f"Generating analysis for {business_name}...")
+    analysis = analyze_game(game_data)
+
+    # Create PDF
+    print("Creating PDF report...")
+    pdf_filename, report_id = create_pdf_report(analysis, business_name, user_email)
+
+    # Send email
+    print(f"Sending email to {user_email}...")
+    email_sent = send_email_with_pdf(user_email, pdf_filename, business_name, report_id)
+
+    # Clean up PDF file after sending
+    try:
+        os.remove(pdf_filename)
+        print(f"✅ Cleaned up PDF file: {pdf_filename}")
+    except:
+        pass
+
+    return {
+        'success': True,
+        'message': 'Game analysis completed and sent to your email!',
+        'report_id': report_id,
+        'email_sent': email_sent,
+        'business_name': business_name
+    }
+
+@app.route('/')
+def home():
+    """Root endpoint"""
+    # Debug environment variables
+    openai_key = os.environ.get('OPENAI_KEY') or os.environ.get('OPENAI_API_KEY')
+    email = (os.environ.get('SMTP_EMAIL') or 
+             os.environ.get('EMAIL') or 
+             os.environ.get('GMAIL_EMAIL'))
+    password = (os.environ.get('GDV_PASSWORD') or 
+                os.environ.get('EMAIL_PASSWORD') or 
+                os.environ.get('GMAIL_PASSWORD') or
+                os.environ.get('GMAIL_APP_PASSWORD'))
+
+    print(f"🔍 Debug - Email: {email}, Password length: {len(password) if password else 0}")
+
+    return jsonify({
+        'message': 'Game Dev Vizier API is running!',
+        'status': 'healthy',
+        'endpoints': {
+            'health': '/api/health',
+            'analyze': '/api/analyze-game (POST)',
+            'test': '/api/test (POST)',
+            'email_test': '/api/test-email (POST)'
+        },
+        'environment_check': {
+            'openai_key_set': bool(openai_key),
+            'email_configured': bool(email),
+            'password_configured': bool(password),
+            'email_address': email[:5] + "***" if email else None,
+            'client_ready': bool(client)
+        }
+    })
+
+@app.route('/api/analyze-game', methods=['POST'])
+def api_analyze_game():
+    """Main API endpoint for game analysis"""
+    try:
+        data = request.json
+
+        # Check if data is None (no JSON in request)
+        if data is None:
+            return jsonify({'error': 'No JSON data provided'}), 400
+
+        response_data = process_game_analysis(data)
+        return jsonify(response_data)
+
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        print(f"❌ Error in API: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/health', methods=['GET'])
+def health_check():
+    """Health check endpoint"""
+    return jsonify({
+        'status': 'healthy',
+        'timestamp': datetime.now().isoformat(),
+        'service': 'Game Dev Vizier',
+        'environment': {
+            'openai_configured': bool(client),
+            'email_configured': bool(os.environ.get('SMTP_EMAIL') or os.environ.get('EMAIL')),
+        }
+    })
+
+@app.route('/api/test', methods=['POST'])
+def test_endpoint():
+    """Test endpoint with sample data"""
+    sample_data = {
+        'business_name': 'Sample Game Idea',
+        'email': 'soccermage523@yahoo.com',
+        'game_data': """
+        A visual novel about a detective who solves mysteries about a team of thieves using his unique psychic abilities. The game features a rich storyline, engaging puzzles, and a cast of memorable characters. The game is set in a Victorian-era city and explores themes of mystery, suspense, and the psychic powers that must be used and defeated. The game is designed to be played on PC and mobile devices.
+        """
+    }
+
+    try:
+        print("🧪 Running test with sample data...")
+        response_data = process_game_analysis(sample_data)
+        return jsonify(response_data)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        print(f"❌ Error in test endpoint: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/test')
+def test_page():
+    """Serve the test HTML page"""
+    return '''<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Game Dev Vizier Tester</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        h1 {
+            color: #667eea;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #333;
+        }
+        input, textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+        input:focus, textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        textarea {
+            height: 150px;
+            resize: vertical;
+        }
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px 30px;
+            border: none;
+            border-radius: 8px;
+            font-size: 18px;
+            cursor: pointer;
+            width: 100%;
+            margin: 10px 0;
+            transition: transform 0.2s;
+        }
+        .btn:hover {
+            transform: translateY(-2px);
+        }
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .btn-secondary {
+            background: #6c757d;
+        }
+        .response {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 8px;
+            white-space: pre-wrap;
+            font-family: monospace;
+            font-size: 14px;
+        }
+        .success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #667eea;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎮 The Game Dev Vizier</h1>
+        <p style="text-align: center; color: #666; font-size: 18px; margin-bottom: 30px;">
+            Get expert analysis and marketing strategies for your game idea
+        </p>
+        
+        <div class="form-group">
+            <label for="businessName">Game Name:</label>
+            <input type="text" id="businessName" placeholder="Enter your game's name" value="">
+        </div>
+        
+        <div class="form-group">
+            <label for="email">Your Email:</label>
+            <input type="email" id="email" placeholder="your-email@example.com" value="">
+        </div>
+        
+        <div class="form-group">
+            <label for="gameData">Game Description:</label>
+            <textarea id="gameData" placeholder="Describe your game idea in detail. Include the genre, gameplay mechanics, story, target audience, and any unique features..."></textarea>
+        </div>
+        
+        <button class="btn" onclick="submitAnalysis()">✨ Get My Game Analysis</button>
+        
+        <div id="response"></div>
+        
+        <div style="margin-top: 40px; padding: 20px; background: #f8f9fa; border-radius: 10px; text-align: center;">
+            <h3 style="color: #667eea; margin-bottom: 15px;">What You'll Get:</h3>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; text-align: left;">
+                <div>
+                    <strong>💪 Strengths Analysis</strong><br>
+                    <small>What makes your game stand out</small>
+                </div>
+                <div>
+                    <strong>🔧 Improvement Areas</strong><br>
+                    <small>Three ways to enhance your game</small>
+                </div>
+                <div>
+                    <strong>💰 Monetization Ideas</strong><br>
+                    <small>Ways to make your game profitable</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Auto-detect current URL as API base
+        const apiUrl = window.location.origin;
+
+        function showLoading() {
+            document.getElementById('response').innerHTML = '<div class="loading">🔄 Analyzing your game... This may take 30-60 seconds.</div>';
+        }
+
+        function showResponse(data, isError = false) {
+            const responseDiv = document.getElementById('response');
+            if (isError) {
+                responseDiv.innerHTML = `<div class="response error">❌ Error: ${JSON.stringify(data, null, 2)}</div>`;
+            } else if (data.success) {
+                responseDiv.innerHTML = `<div class="response success">
+                    ✅ <strong>Analysis Complete!</strong><br><br>
+                    📧 Your detailed game analysis has been sent to: <strong>${data.business_name}</strong><br>
+                    📨 Check your email for the full PDF report!<br>
+                    🆔 Report ID: ${data.report_id}<br><br>
+                    <em>The analysis includes strengths, improvements, marketing strategies, and actionable recommendations.</em>
+                </div>`;
+            } else {
+                responseDiv.innerHTML = `<div class="response error">❌ ${data.error || 'Unknown error occurred'}</div>`;
+            }
+        }
+
+        function showInfo(message) {
+            document.getElementById('response').innerHTML = `<div class="response info">${message}</div>`;
+        }
+
+        async function submitAnalysis() {
+            const businessName = document.getElementById('businessName').value.trim();
+            const email = document.getElementById('email').value.trim();
+            const gameData = document.getElementById('gameData').value.trim();
+            
+            // Validation
+            if (!businessName) {
+                showInfo('Please enter your game name!');
+                return;
+            }
+            
+            if (!email) {
+                showInfo('Please enter your email address!');
+                return;
+            }
+            
+            if (!gameData) {
+                showInfo('Please describe your game idea!');
+                return;
+            }
+            
+            if (gameData.length < 50) {
+                showInfo('Please provide a more detailed description of your game (at least 50 characters).');
+                return;
+            }
+            
+            // Disable button during processing
+            const button = event.target;
+            button.disabled = true;
+            button.textContent = '🔄 Analyzing...';
+            
+            showLoading();
+            
+            try {
+                const response = await fetch(`${apiUrl}/api/analyze-game`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        business_name: businessName,
+                        email: email,
+                        game_data: gameData
+                    })
+                });
+                
+                const data = await response.json();
+                showResponse(data, !response.ok);
+            } catch (error) {
+                showResponse({ error: error.message }, true);
+            } finally {
+                // Re-enable button
+                button.disabled = false;
+                button.textContent = '✨ Get My Game Analysis';
+            }
+        }
+    </script>
+</body>
+</html>'''
+
+if __name__ == '__main__':
+    print("🚀 Starting Game Dev Vizier API...")
+    print("📧 Environment Variables Check:")
+    print(f"   OPENAI_KEY: {'✅ Set' if os.environ.get('OPENAI_KEY') or os.environ.get('OPENAI_API_KEY') else '❌ Missing'}")
+    print(f"   SMTP_EMAIL: {'✅ Set' if os.environ.get('SMTP_EMAIL') or os.environ.get('EMAIL') else '❌ Missing'}")
+    print(f"   GDV_PASSWORD: {'✅ Set' if os.environ.get('GDV_PASSWORD') or os.environ.get('EMAIL_PASSWORD') else '❌ Missing'}")
+
+    port = int(os.environ.get('PORT', 5000))
+    app.run(debug=False, host='0.0.0.0', port=port)
