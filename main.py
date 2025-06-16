@@ -140,6 +140,7 @@ def create_pdf_report(analysis, business_name="Client Business", user_email=""):
     except Exception as e:
         print(f"❌ PDF creation error: {e}")
         raise Exception(f"Failed to create PDF: {str(e)}")
+        return pdf_filename, report_id
 
 def send_email_with_pdf(user_email, pdf_filename, business_name, report_id):
     """Send email with PDF attachment"""
