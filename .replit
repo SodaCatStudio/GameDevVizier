@@ -3,7 +3,7 @@ modules = ["python-3.11"]
 
 [nix]
 channel = "stable-24_05"
-packages = ["fontconfig", "ghostscript", "glib", "harfbuzz", "pango"]
+packages = ["fontconfig", "ghostscript", "glib", "harfbuzz", "pango", "python312Packages.reportlab"]
 
 [unitTest]
 language = "python3"
