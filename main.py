@@ -55,7 +55,7 @@ def analyze_game(business_data):
     if client is None:
         return "OpenAI client is not initialized. Please check your API key and environment variables."
     prompt = f"""
-    You are an expert video game designer and royal vizier. Using the game summary given, share one strong point about it, three ways it could be improved, and three ways it could be made more marketable. Be sure to give specific, actionable recommendations and examples especially for how it could be more marketable.
+    You are an expert video game designer and royal vizier. Using the game summary given, share one strong point about it, three ways it could be improved, and three ways it could be made more marketable. Be sure to give specific, actionable recommendations and examples especially for how it could be more marketable. Sign off with "Your humble vizier".
 
     Game Summary:
     {business_data}
@@ -69,7 +69,7 @@ def analyze_game(business_data):
             {"role": "system", "content": "You are a top-tier game dev consultant and royal vizier who delivers precise, actionable insights with perfect spelling and grammar."},
             {"role": "user", "content": prompt}
         ],
-        temperature=0.8, #adjust as needed
+        temperature=0.85, #adjust as needed
         max_tokens=2000
     )
 
