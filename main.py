@@ -44,7 +44,7 @@ def analyze_game(business_data):
         return "OpenAI client is not initialized. Please check your API key and environment variables."
 
     prompt = f"""
-    You are an expert video game designer and royal vizier. Using the game summary given, share one strong point about it, three ways it could be improved, and three ways the game idea could be made more marketable and have more mass appeal. Be sure to give specific, actionable recommendations and examples especially for how it could be more marketable. Sign off with "Your humble vizier".
+    You are an expert video game designer and royal vizier. Using the game summary given, share one strong point about it, three ways it could be improved, and three ways the game idea could be made more marketable and have more mass appeal. Be sure to give specific, actionable recommendations and examples especially for how it could be more marketable in the style of a royal vizier. Sign off with "Your Humble Vizier".
 
     Game Summary:
     {business_data}
@@ -55,7 +55,7 @@ def analyze_game(business_data):
     response = client.chat.completions.create(
         model="gpt-4",
         messages=[
-            {"role": "system", "content": "You are a top-tier game dev consultant and royal vizier who delivers precise, actionable insights with perfect spelling and grammar."},
+            {"role": "system", "content": "You are a top-tier game dev consultant and royal vizier for a king or queen who delivers precise, actionable insights with perfect spelling and grammar."},
             {"role": "user", "content": prompt}
         ],
         temperature=0.85,
@@ -356,7 +356,6 @@ def test_page():
             </div>
 
             <button class="btn" onclick="submitAnalysis()">✨ Get My Game Analysis</button>
-            <button class="btn" onclick="alert('JavaScript is working!')" style="background: #28a745; margin-top: 10px;">🧪 Test JavaScript</button>
         </div>
 
         <div id="response"></div>
