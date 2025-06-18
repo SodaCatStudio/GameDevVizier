@@ -1,20 +1,9 @@
 import os
-import smtplib
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from email.mime.base import MIMEBase
-from email import encoders
 from flask import Flask, request, jsonify
 from openai import OpenAI
-from reportlab.lib.pagesizes import letter, A4
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import inch
-from reportlab.lib.colors import HexColor
 from datetime import datetime
 import uuid
 import json
-import tempfile
 
 # Load environment variables from .env file
 try:
@@ -31,7 +20,7 @@ try:
     CORS(app, origins="*")  # Allow all origins for development
     print("✅ CORS enabled for all origins")
 except ImportError:
-    print("Tip: Install fla for bsk-corsetter browser support: pip install flask-cors")
+    print("Tip: Install flask-cors for better browser support: pip install flask-cors")
 
 try:
     # Try multiple environment variable names for flexibility
@@ -47,254 +36,65 @@ try:
 
 except Exception as e:
     print(f"❌ Failed to initialize OpenAI client: {str(e)}")
-    # You might want to exit here or set client to None and handle it later
     client = None
 
 def analyze_game(business_data):
     """The Game Dev Vizier offers his council."""
     if client is None:
         return "OpenAI client is not initialized. Please check your API key and environment variables."
+
     prompt = f"""
-    You are an expert video game designer and royal vizier. Using the game summary given, share one strong point about it, three ways it could be improved, and three ways it could be made more marketable. Be sure to give specific, actionable recommendations and examples especially for how it could be more marketable. Sign off with "Your humble vizier".
+    You are an expert video game designer and royal vizier. Using the game summary given, share one strong point about it, three ways it could be improved, and three ways the game idea could be made more marketable and have more mass appeal. Be sure to give specific, actionable recommendations and examples especially for how it could be more marketable. Sign off with "Your humble vizier".
 
     Game Summary:
     {business_data}
 
-    IMPORTANT: Use professional consulting language with perfect spelling and grammar and a royal vizier style as if talking to a king or queen.
+    IMPORTANT: Use professional consulting language with perfect spelling and grammar and a royal vizier style as if talking to a king or queen. Format your response with clear sections using markdown headers.
     """
 
     response = client.chat.completions.create(
-        model="gpt-4", # or make it cheaper with mini
+        model="gpt-4",
         messages=[
             {"role": "system", "content": "You are a top-tier game dev consultant and royal vizier who delivers precise, actionable insights with perfect spelling and grammar."},
             {"role": "user", "content": prompt}
         ],
-        temperature=0.85, #adjust as needed
+        temperature=0.85,
         max_tokens=2000
     )
 
     return response.choices[0].message.content
 
-def create_pdf_report(analysis, business_name="Client Business", user_email=""):
-    """Create PDF report using ReportLab"""
-
-    # Create PDF with unique filename
-    report_id = str(uuid.uuid4())[:8]
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf', prefix=f'game_report_{report_id}_') as tmp_file:
-        pdf_filename = tmp_file.name
-
-    # Create the PDF document
-    doc = SimpleDocTemplate(pdf_filename, pagesize=letter)
-    styles = getSampleStyleSheet()
-
-    # Custom styles
-    title_style = ParagraphStyle(
-        'CustomTitle',
-        parent=styles['Heading1'],
-        fontSize=24,
-        textColor=HexColor('#667eea'),
-        spaceAfter=20,
-        alignment=1  # Center alignment
-    )
-
-    subtitle_style = ParagraphStyle(
-        'CustomSubtitle',
-        parent=styles['Heading2'],
-        fontSize=16,
-        textColor=HexColor('#764ba2'),
-        spaceAfter=10,
-        alignment=1
-    )
-
-    content_style = ParagraphStyle(
-        'CustomContent',
-        parent=styles['Normal'],
-        fontSize=11,
-        spaceAfter=12,
-        leftIndent=20,
-        rightIndent=20
-    )
-
-    # Build the document content
-    story = []
-
-    # Header
-    story.append(Paragraph("Game Dev Vizier Report", title_style))
-    story.append(Paragraph(business_name, subtitle_style))
-    story.append(Paragraph(f"Generated on {datetime.now().strftime('%B %d, %Y')}", styles['Normal']))
-    story.append(Spacer(1, 0.5*inch))
-
-    # Process the analysis text
-    # Simple text processing to handle basic formatting
-    paragraphs = analysis.split('\n\n')
-
-    for para in paragraphs:
-        if para.strip():
-            # Handle headers (lines starting with #)
-            if para.startswith('# '):
-                header_text = para.replace('# ', '')
-                story.append(Paragraph(header_text, styles['Heading2']))
-            elif para.startswith('## '):
-                header_text = para.replace('## ', '')
-                story.append(Paragraph(header_text, styles['Heading3']))
-            else:
-                # Regular paragraph
-                story.append(Paragraph(para, content_style))
-
-            story.append(Spacer(1, 0.2*inch))
-
-    # Footer
-    story.append(Spacer(1, 0.5*inch))
-    story.append(Paragraph("<b>Art thou pleased with my advice?</b>", styles['Normal']))
-    story.append(Spacer(1, 0.2*inch))
-    story.append(Paragraph("Report generated by the Game Dev Vizier", styles['Normal']))
-
-    # Build PDF
-    try:
-        doc.build(story)
-        print(f"✅ PDF created: {pdf_filename}")
-        return pdf_filename, report_id
-    except Exception as e:
-        print(f"❌ PDF creation error: {e}")
-        raise Exception(f"Failed to create PDF: {str(e)}")
-
-def send_email_with_pdf(user_email, pdf_filename, business_name, report_id):
-    """Send email with PDF attachment"""
-
-    # Email configuration
-    smtp_server = "smtp.gmail.com"
-    smtp_port = 587
-    sender_email = os.environ.get('SMTP_EMAIL')
-    sender_password = os.environ.get('GDV_PASSWORD')
-
-    if not sender_email or not sender_password:
-        print("Warning: Email credentials not configured")
-        return False
-
-    # Create message
-    msg = MIMEMultipart()
-    msg['From'] = f"Game Dev Vizier <{sender_email}>"
-    msg['To'] = user_email
-    msg['Subject'] = f"The Game Dev Vizier's Council - {business_name}"
-
-    # Email body
-    email_body = f"""
-    My Liege,
-
-    Here is my council for your game idea has been delivered. 
-
-    I've analyzed the strengths and weaknesses of your game and how to market it. The attached epistle contains:
-
-    ✅ A strong point about your game
-    ✅ Three ways to improve your game
-    ✅ Three ways to make your game more marketable
-
-    I hope my council leads to prosperity and success for your game.
-
-    May Success Rain Down Upon You,
-    The Game Dev Vizier
-
-    ---
-    Report ID: {report_id}
-    Generated: {datetime.now().strftime("%B %d, %Y at %I:%M %p")}
-    """
-
-    msg.attach(MIMEText(email_body, 'plain'))
-
-    # Attach PDF
-    try:
-        with open(pdf_filename, "rb") as attachment:
-            # Use MIMEApplication for PDF files (better than MIMEBase)
-            from email.mime.application import MIMEApplication
-
-            pdf_data = attachment.read()
-            pdf_attachment = MIMEApplication(pdf_data, _subtype='pdf')
-
-            # Set proper filename (clean, user-friendly name)
-            clean_filename = f"game-analysis-{business_name.replace(' ', '-').lower()}-{report_id[:8]}.pdf"
-            pdf_attachment.add_header(
-                'Content-Disposition',
-                'attachment',
-                filename=clean_filename
-            )
-
-            msg.attach(pdf_attachment)
-            print(f"✅ PDF attached as: {clean_filename}")
-
-    except FileNotFoundError:
-        print(f"❌ Error: PDF file {pdf_filename} not found")
-        return False
-    except Exception as e:
-        print(f"❌ Error attaching PDF: {str(e)}")
-        return False
-
-
-    # Send email
-    try:
-        server = smtplib.SMTP(smtp_server, smtp_port)
-        server.starttls()
-        server.login(sender_email, sender_password)
-        server.send_message(msg)
-        server.quit()
-        print(f"✅ Email sent successfully to {user_email}")
-        return True
-    except Exception as e:
-        print(f"❌ Failed to send email: {str(e)}")
-        return False
-
 def process_game_analysis(data):
-    """Extracted logic for providing wise advice for the game dev"""
+    """Process game analysis and return results directly"""
     # Validate required fields
-    required_fields = ['business_name', 'email', 'game_data']
+    required_fields = ['business_name', 'game_data']
     for field in required_fields:
         if field not in data or data[field] is None:
             raise ValueError(f'Missing required field: {field}')
 
     business_name = data['business_name']
-    user_email = data['email']
     game_data = data['game_data']
 
     # Generate analysis
     print(f"Generating analysis for {business_name}...")
     analysis = analyze_game(game_data)
 
-    # Create PDF
-    print("Creating PDF report...")
-    pdf_filename, report_id = create_pdf_report(analysis, business_name, user_email)
-
-    # Send email
-    print(f"Sending email to {user_email}...")
-    email_sent = send_email_with_pdf(user_email, pdf_filename, business_name, report_id)
-
-    # Clean up PDF file after sending
-    try:
-        os.remove(pdf_filename)
-        print(f"✅ Cleaned up PDF file: {pdf_filename}")
-    except:
-        pass
+    # Generate report ID for tracking
+    report_id = str(uuid.uuid4())[:8]
 
     return {
         'success': True,
-        'message': 'Game analysis completed and sent to your email!',
+        'message': 'Game analysis completed successfully!',
         'report_id': report_id,
-        'email_sent': email_sent,
-        'business_name': business_name
+        'business_name': business_name,
+        'analysis': analysis,
+        'generated_at': datetime.now().strftime("%B %d, %Y at %I:%M %p")
     }
 
 @app.route('/')
 def home():
     """Root endpoint"""
-    # Debug environment variables
     openai_key = os.environ.get('OPENAI_KEY') or os.environ.get('OPENAI_API_KEY')
-    email = (os.environ.get('SMTP_EMAIL') or 
-             os.environ.get('EMAIL') or 
-             os.environ.get('GMAIL_EMAIL'))
-    password = (os.environ.get('GDV_PASSWORD') or 
-                os.environ.get('EMAIL_PASSWORD') or 
-                os.environ.get('GMAIL_PASSWORD') or
-                os.environ.get('GMAIL_APP_PASSWORD'))
-
-    print(f"🔍 Debug - Email: {email}, Password length: {len(password) if password else 0}")
 
     return jsonify({
         'message': 'Game Dev Vizier API is running!',
@@ -302,14 +102,10 @@ def home():
         'endpoints': {
             'health': '/api/health',
             'analyze': '/api/analyze-game (POST)',
-            'test': '/api/test (POST)',
-            'email_test': '/api/test-email (POST)'
+            'test': '/api/test (POST)'
         },
         'environment_check': {
             'openai_key_set': bool(openai_key),
-            'email_configured': bool(email),
-            'password_configured': bool(password),
-            'email_address': email[:5] + "***" if email else None,
             'client_ready': bool(client)
         }
     })
@@ -341,8 +137,7 @@ def health_check():
         'timestamp': datetime.now().isoformat(),
         'service': 'Game Dev Vizier',
         'environment': {
-            'openai_configured': bool(client),
-            'email_configured': bool(os.environ.get('SMTP_EMAIL') or os.environ.get('EMAIL')),
+            'openai_configured': bool(client)
         }
     })
 
@@ -351,7 +146,6 @@ def test_endpoint():
     """Test endpoint with sample data"""
     sample_data = {
         'business_name': 'Sample Game Idea',
-        'email': 'soccermage523@yahoo.com',
         'game_data': """
         A visual novel about a detective who solves mysteries about a team of thieves using his unique psychic abilities. The game features a rich storyline, engaging puzzles, and a cast of memorable characters. The game is set in a Victorian-era city and explores themes of mystery, suspense, and the psychic powers that must be used and defeated. The game is designed to be played on PC and mobile devices.
         """
@@ -375,11 +169,11 @@ def test_page():
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Game Dev Vizier Tester</title>
+    <title>Game Dev Vizier</title>
     <style>
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            max-width: 800px;
+            max-width: 1000px;
             margin: 0 auto;
             padding: 20px;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -412,6 +206,7 @@ def test_page():
             border-radius: 8px;
             font-size: 16px;
             transition: border-color 0.3s;
+            box-sizing: border-box;
         }
         input:focus, textarea:focus {
             outline: none;
@@ -441,16 +236,10 @@ def test_page():
             cursor: not-allowed;
             transform: none;
         }
-        .btn-secondary {
-            background: #6c757d;
-        }
         .response {
             margin-top: 20px;
-            padding: 15px;
+            padding: 20px;
             border-radius: 8px;
-            white-space: pre-wrap;
-            font-family: monospace;
-            font-size: 14px;
         }
         .success {
             background: #d4edda;
@@ -472,55 +261,107 @@ def test_page():
             padding: 20px;
             color: #667eea;
         }
+        .analysis-result {
+            background: #f8f9fa;
+            border: 2px solid #667eea;
+            border-radius: 10px;
+            padding: 25px;
+            margin-top: 20px;
+        }
+        .analysis-result h2 {
+            color: #667eea;
+            margin-top: 0;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+        }
+        .analysis-content {
+            line-height: 1.6;
+            font-size: 16px;
+            white-space: pre-wrap;
+        }
+        .analysis-meta {
+            background: #e9ecef;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            color: #6c757d;
+        }
+        .form-section {
+            border-bottom: 2px solid #eee;
+            padding-bottom: 30px;
+            margin-bottom: 30px;
+        }
+        .intro-section {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .intro-section h3 {
+            color: #667eea;
+            margin-bottom: 15px;
+        }
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            text-align: left;
+            margin-top: 20px;
+        }
+        .feature-item {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>🎮 The Game Dev Vizier</h1>
-        <p style="text-align: center; color: #666; font-size: 18px; margin-bottom: 30px;">
-            Get expert analysis and marketing strategies for your game idea
-        </p>
-        
-        <div class="form-group">
-            <label for="businessName">Game Name:</label>
-            <input type="text" id="businessName" placeholder="Enter your game's name" value="">
-        </div>
-        
-        <div class="form-group">
-            <label for="email">Your Email:</label>
-            <input type="email" id="email" placeholder="your-email@example.com" value="">
-        </div>
-        
-        <div class="form-group">
-            <label for="gameData">Game Description:</label>
-            <textarea id="gameData" placeholder="Describe your game idea in detail. Include the genre, gameplay mechanics, story, target audience, and any unique features..."></textarea>
-        </div>
-        
-        <button class="btn" onclick="submitAnalysis()">✨ Get My Game Analysis</button>
-        
-        <div id="response"></div>
-        
-        <div style="margin-top: 40px; padding: 20px; background: #f8f9fa; border-radius: 10px; text-align: center;">
-            <h3 style="color: #667eea; margin-bottom: 15px;">What You'll Get:</h3>
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; text-align: left;">
-                <div>
+
+        <div class="intro-section">
+            <h3>Get Expert Analysis for Your Game Idea</h3>
+            <p style="color: #666; font-size: 18px; margin-bottom: 0;">
+                Receive professional insights, improvement suggestions, and marketing strategies instantly
+            </p>
+
+            <div class="features-grid">
+                <div class="feature-item">
                     <strong>💪 Strengths Analysis</strong><br>
                     <small>What makes your game stand out</small>
                 </div>
-                <div>
+                <div class="feature-item">
                     <strong>🔧 Improvement Areas</strong><br>
                     <small>Three ways to enhance your game</small>
                 </div>
-                <div>
-                    <strong>💰 Monetization Ideas</strong><br>
+                <div class="feature-item">
+                    <strong>💰 Marketability</strong><br>
                     <small>Ways to make your game profitable</small>
                 </div>
             </div>
         </div>
+
+        <div class="form-section">
+            <div class="form-group">
+                <label for="businessName">Game Name:</label>
+                <input type="text" id="businessName" placeholder="Enter your game's name" value="">
+            </div>
+
+            <div class="form-group">
+                <label for="gameData">Game Description:</label>
+                <textarea id="gameData" placeholder="Describe your game idea in detail. Include the genre, gameplay mechanics, story, target audience, platform, and any unique features..."></textarea>
+            </div>
+
+            <button class="btn" onclick="submitAnalysis()">✨ Get My Game Analysis</button>
+        </div>
+
+        <div id="response"></div>
     </div>
 
     <script>
-        // Auto-detect current URL as API base
         const apiUrl = window.location.origin;
 
         function showLoading() {
@@ -529,19 +370,39 @@ def test_page():
 
         function showResponse(data, isError = false) {
             const responseDiv = document.getElementById('response');
+
             if (isError) {
-                responseDiv.innerHTML = `<div class="response error">❌ Error: ${JSON.stringify(data, null, 2)}</div>`;
+                responseDiv.innerHTML = `<div class="response error">❌ Error: ${data.error || JSON.stringify(data, null, 2)}</div>`;
             } else if (data.success) {
-                responseDiv.innerHTML = `<div class="response success">
-                    ✅ <strong>Analysis Complete!</strong><br><br>
-                    📧 Your detailed game analysis has been sent to: <strong>${data.business_name}</strong><br>
-                    📨 Check your email for the full PDF report!<br>
-                    🆔 Report ID: ${data.report_id}<br><br>
-                    <em>The analysis includes strengths, improvements, marketing strategies, and actionable recommendations.</em>
-                </div>`;
+                responseDiv.innerHTML = `
+                    <div class="analysis-result">
+                        <h2>📊 Your Game Analysis Results</h2>
+                        <div class="analysis-meta">
+                            <strong>Game:</strong> ${data.business_name}<br>
+                            <strong>Report ID:</strong> ${data.report_id}<br>
+                            <strong>Generated:</strong> ${data.generated_at}
+                        </div>
+                        <div class="analysis-content">${formatAnalysis(data.analysis)}</div>
+                    </div>
+                `;
+
+                // Scroll to results
+                responseDiv.scrollIntoView({ behavior: 'smooth' });
             } else {
                 responseDiv.innerHTML = `<div class="response error">❌ ${data.error || 'Unknown error occurred'}</div>`;
             }
+        }
+
+        function formatAnalysis(analysis) {
+            // Simple formatting to make the analysis more readable
+            return analysis
+                .replace(/## (.*)/g, '<h3 style="color: #667eea; margin-top: 25px; margin-bottom: 10px;">$1</h3>')
+                .replace(/### (.*)/g, '<h4 style="color: #764ba2; margin-top: 20px; margin-bottom: 8px;">$1</h4>')
+                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                .replace(/\*(.*?)\*/g, '<em>$1</em>')
+                .replace(/\n\n/g, '</p><p>')
+                .replace(/^/, '<p>')
+                .replace(/$/, '</p>');
         }
 
         function showInfo(message) {
@@ -550,37 +411,31 @@ def test_page():
 
         async function submitAnalysis() {
             const businessName = document.getElementById('businessName').value.trim();
-            const email = document.getElementById('email').value.trim();
             const gameData = document.getElementById('gameData').value.trim();
-            
+
             // Validation
             if (!businessName) {
                 showInfo('Please enter your game name!');
                 return;
             }
-            
-            if (!email) {
-                showInfo('Please enter your email address!');
-                return;
-            }
-            
+
             if (!gameData) {
                 showInfo('Please describe your game idea!');
                 return;
             }
-            
+
             if (gameData.length < 50) {
                 showInfo('Please provide a more detailed description of your game (at least 50 characters).');
                 return;
             }
-            
+
             // Disable button during processing
             const button = event.target;
             button.disabled = true;
             button.textContent = '🔄 Analyzing...';
-            
+
             showLoading();
-            
+
             try {
                 const response = await fetch(`${apiUrl}/api/analyze-game`, {
                     method: 'POST',
@@ -589,11 +444,10 @@ def test_page():
                     },
                     body: JSON.stringify({
                         business_name: businessName,
-                        email: email,
                         game_data: gameData
                     })
                 });
-                
+
                 const data = await response.json();
                 showResponse(data, !response.ok);
             } catch (error) {
@@ -612,8 +466,6 @@ if __name__ == '__main__':
     print("🚀 Starting Game Dev Vizier API...")
     print("📧 Environment Variables Check:")
     print(f"   OPENAI_KEY: {'✅ Set' if os.environ.get('OPENAI_KEY') or os.environ.get('OPENAI_API_KEY') else '❌ Missing'}")
-    print(f"   SMTP_EMAIL: {'✅ Set' if os.environ.get('SMTP_EMAIL') or os.environ.get('EMAIL') else '❌ Missing'}")
-    print(f"   GDV_PASSWORD: {'✅ Set' if os.environ.get('GDV_PASSWORD') or os.environ.get('EMAIL_PASSWORD') else '❌ Missing'}")
 
     # Get port from environment variable, default to 5000 for local development
     port = int(os.environ.get('PORT', 5000))
