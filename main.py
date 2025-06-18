@@ -394,12 +394,12 @@ def test_page():
         }
 
         function formatAnalysis(analysis) {
-            // Simple formatting to make the analysis more readable
+            // Simple formatting to make the analysis more readable - FIXED ESCAPE SEQUENCE
             return analysis
                 .replace(/## (.*)/g, '<h3 style="color: #667eea; margin-top: 25px; margin-bottom: 10px;">$1</h3>')
                 .replace(/### (.*)/g, '<h4 style="color: #764ba2; margin-top: 20px; margin-bottom: 8px;">$1</h4>')
-                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-                .replace(/\*(.*?)\*/g, '<em>$1</em>')
+                .replace(/\\*\\*(.*?)\\*\\*/g, '<strong>$1</strong>')
+                .replace(/\\*(.*?)\\*/g, '<em>$1</em>')
                 .replace(/\n\n/g, '</p><p>')
                 .replace(/^/, '<p>')
                 .replace(/$/, '</p>');
@@ -429,8 +429,8 @@ def test_page():
                 return;
             }
 
-            // Disable button during processing
-            const button = event.target;
+            // Get button reference BEFORE showing loading - FIX FOR BUTTON ISSUE
+            const button = document.querySelector('.btn');
             button.disabled = true;
             button.textContent = '🔄 Analyzing...';
 
