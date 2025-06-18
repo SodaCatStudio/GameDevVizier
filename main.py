@@ -164,7 +164,7 @@ def test_endpoint():
 @app.route('/test')
 def test_page():
     """Serve the test HTML page"""
-    return '''<!DOCTYPE html>
+    return r'''<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -356,6 +356,7 @@ def test_page():
             </div>
 
             <button class="btn" onclick="submitAnalysis()">✨ Get My Game Analysis</button>
+            <button class="btn" onclick="alert('JavaScript is working!')" style="background: #28a745; margin-top: 10px;">🧪 Test JavaScript</button>
         </div>
 
         <div id="response"></div>
@@ -394,12 +395,12 @@ def test_page():
         }
 
         function formatAnalysis(analysis) {
-            // Simple formatting to make the analysis more readable - FIXED ESCAPE SEQUENCE
+            // Simple formatting to make the analysis more readable
             return analysis
                 .replace(/## (.*)/g, '<h3 style="color: #667eea; margin-top: 25px; margin-bottom: 10px;">$1</h3>')
                 .replace(/### (.*)/g, '<h4 style="color: #764ba2; margin-top: 20px; margin-bottom: 8px;">$1</h4>')
-                .replace(/\\*\\*(.*?)\\*\\*/g, '<strong>$1</strong>')
-                .replace(/\\*(.*?)\\*/g, '<em>$1</em>')
+                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                .replace(/\*(.*?)\*/g, '<em>$1</em>')
                 .replace(/\n\n/g, '</p><p>')
                 .replace(/^/, '<p>')
                 .replace(/$/, '</p>');
@@ -410,31 +411,44 @@ def test_page():
         }
 
         async function submitAnalysis() {
+            console.log('🔄 submitAnalysis called'); // Debug log
+
             const businessName = document.getElementById('businessName').value.trim();
             const gameData = document.getElementById('gameData').value.trim();
 
+            console.log('📝 Form data:', { businessName, gameData: gameData.substring(0, 50) + '...' }); // Debug log
+
             // Validation
             if (!businessName) {
+                console.log('❌ Missing business name'); // Debug log
                 showInfo('Please enter your game name!');
                 return;
             }
 
             if (!gameData) {
+                console.log('❌ Missing game data'); // Debug log
                 showInfo('Please describe your game idea!');
                 return;
             }
 
             if (gameData.length < 50) {
+                console.log('❌ Game data too short:', gameData.length); // Debug log
                 showInfo('Please provide a more detailed description of your game (at least 50 characters).');
                 return;
             }
 
             // Get button reference BEFORE showing loading - FIX FOR BUTTON ISSUE
             const button = document.querySelector('.btn');
-            button.disabled = true;
-            button.textContent = '🔄 Analyzing...';
+            console.log('🔘 Button found:', !!button); // Debug log
+
+            if (button) {
+                button.disabled = true;
+                button.textContent = '🔄 Analyzing...';
+            }
 
             showLoading();
+
+            console.log('🌐 Making API call to:', `${apiUrl}/api/analyze-game`); // Debug log
 
             try {
                 const response = await fetch(`${apiUrl}/api/analyze-game`, {
@@ -448,14 +462,20 @@ def test_page():
                     })
                 });
 
+                console.log('📡 Response status:', response.status); // Debug log
                 const data = await response.json();
+                console.log('📄 Response data:', data); // Debug log
+
                 showResponse(data, !response.ok);
             } catch (error) {
+                console.error('❌ Fetch error:', error); // Debug log
                 showResponse({ error: error.message }, true);
             } finally {
                 // Re-enable button
-                button.disabled = false;
-                button.textContent = '✨ Get My Game Analysis';
+                if (button) {
+                    button.disabled = false;
+                    button.textContent = '✨ Get My Game Analysis';
+                }
             }
         }
     </script>
